@@ -487,9 +487,9 @@ function! copilot#client#LspHandle(id, request) abort
   return s:OnMessage(s:instances[a:id], a:request)
 endfunction
 
-let s:script_name = 'dist/language-server.js'
+let s:script_name = 'copilot-language-server/dist/language-server.js'
 function! s:Command() abort
-  if !has('nvim-0.7') && v:version < 900
+  if !has('nvim-0.8') && v:version < 900
     return [[], [], 'Vim version too old']
   endif
   let script = get(g:, 'copilot_command', '')
@@ -544,7 +544,7 @@ function! copilot#client#Settings() abort
         \ 'http': {
         \   'proxy': get(g:, 'copilot_proxy', v:null),
         \   'proxyStrictSSL': get(g:, 'copilot_proxy_strict_ssl', v:null)},
-        \ 'github-enterprise': {'uri': get(g:, 'copilot_auth_provider_url', v:null)},
+        \ 'github-enterprise': {'uri': get(g:, 'copilot_enterprise_uri', get(g:, 'copilot_auth_provider_url', v:null))},
         \ }
   if type(settings.http.proxy) ==# v:t_string && settings.http.proxy =~# '^[^/]\+$'
     let settings.http.proxy = 'http://' . settings.http.proxy
@@ -630,6 +630,7 @@ let s:vim_capabilities = {
 function! copilot#client#New() abort
   let opts = {}
   let instance = {'requests': {},
+        \ 'name': 'GitHub Copilot',
         \ 'progress': {},
         \ 'workspaceFolders': {},
         \ 'after_initialized': [],
@@ -686,7 +687,7 @@ function! copilot#client#New() abort
           \ 'Attach': function('s:NvimAttach'),
           \ 'IsAttached': function('s:NvimIsAttached'),
           \ })
-    let instance.client_id = eval("v:lua.require'_copilot'.lsp_start_client(command, keys(instance.methods), opts, settings)")
+    let instance.client_id = eval("v:lua.require'_copilot'.lsp_start_client(command, instance.name, keys(instance.methods), opts, settings)")
     let instance.id = instance.client_id
   else
     call extend(instance, {

@@ -1,6 +1,6 @@
 scriptencoding utf-8
 
-let s:has_nvim_ghost_text = has('nvim-0.7') && exists('*nvim_buf_get_mark')
+let s:has_nvim_ghost_text = has('nvim-0.8')
 let s:vim_minimum_version = '9.0.0185'
 let s:has_vim_ghost_text = has('patch-' . s:vim_minimum_version) && has('textprop')
 let s:has_ghost_text = s:has_nvim_ghost_text || s:has_vim_ghost_text
@@ -58,8 +58,8 @@ function! copilot#RunningClient() abort
   endif
 endfunction
 
-if has('nvim-0.7') && !has(luaeval('vim.version().api_prerelease') ? 'nvim-0.8.1' : 'nvim-0.8.0')
-  let s:editor_warning = 'Neovim 0.7 support is deprecated and will be dropped in a future release of copilot.vim.'
+if has('nvim-0.8') && !has(luaeval('vim.version().api_prerelease') ? 'nvim-0.9.1' : 'nvim-0.9.0')
+  let s:editor_warning = 'Neovim 0.8 support is deprecated and will be dropped in a future release of copilot.vim.'
 endif
 if has('vim_starting') && exists('s:editor_warning')
   call copilot#logger#Warn(s:editor_warning)
@@ -191,7 +191,7 @@ function! s:HideDuringCompletion() abort
 endfunction
 
 function! s:SuggestionTextWithAdjustments() abort
-  let empty = ['', 0, 0, {}]
+  let empty = ['', 0, '', {}]
   try
     if mode() !~# '^[iR]' || (s:HideDuringCompletion() && pumvisible()) || !exists('b:_copilot.suggestions')
       return empty
@@ -215,10 +215,10 @@ function! s:SuggestionTextWithAdjustments() abort
       let leading = strpart(matchstr(choice_text, '^\s\+'), 0, len(typed))
       let unindented = strpart(choice_text, len(leading))
       if strpart(typed, 0, len(leading)) ==# leading && unindented !=# delete
-        return [unindented, len(typed) - len(leading), strchars(delete), choice]
+        return [unindented, len(typed) - len(leading), delete, choice]
       endif
     elseif typed ==# strpart(choice_text, 0, offset)
-      return [strpart(choice_text, offset), 0, strchars(delete), choice]
+      return [strpart(choice_text, offset), 0, delete, choice]
     endif
   catch
     call copilot#logger#Exception()
@@ -290,7 +290,8 @@ function! copilot#GetDisplayedSuggestion() abort
         \ 'item': item,
         \ 'text': text,
         \ 'outdentSize': outdent,
-        \ 'deleteSize': delete}
+        \ 'deleteSize': strchars(delete),
+        \ 'deleteChars': delete}
 endfunction
 
 function! s:ClearPreview() abort
@@ -304,7 +305,8 @@ endfunction
 
 function! s:UpdatePreview() abort
   try
-    let [text, outdent, delete, item] = s:SuggestionTextWithAdjustments()
+    let [text, outdent, delete_chars, item] = s:SuggestionTextWithAdjustments()
+    let delete = strchars(delete_chars)
     let text = split(text, "\r\n\\=\\|\n", 1)
     if empty(text[-1])
       call remove(text, -1)
@@ -489,6 +491,13 @@ function! copilot#Accept(...) abort
     if empty(text)
       let text = s.text
     endif
+    let delete_chars = s.deleteChars
+    let leftover = strpart(s.text, strlen(text))
+    let idx = strridx(leftover, matchstr(delete_chars, '.$'))
+    while !empty(delete_chars) && idx != -1
+      let delete_chars = substitute(delete_chars, '.$', '', '')
+      let idx = strridx(leftover, matchstr(delete_chars, '.$'), idx - 1)
+    endwhile
     if text ==# s.text && has_key(s.item, 'command')
       call copilot#Request('workspace/executeCommand', s.item.command)
     else
@@ -500,7 +509,7 @@ function! copilot#Accept(...) abort
     call s:ClearPreview()
     let s:suggestion_text = text
     let recall = text =~# "\n" ? "\<C-R>\<C-O>=" : "\<C-R>\<C-R>="
-    return repeat("\<Left>\<Del>", s.outdentSize) . repeat("\<Del>", s.deleteSize) .
+    return repeat("\<Left>\<Del>", s.outdentSize) . repeat("\<Del>", strchars(delete_chars)) .
             \ recall . "copilot#TextQueuedForInsertion()\<CR>" . (a:0 > 1 ? '' : "\<End>")
   endif
   let default = get(g:, 'copilot_tab_fallback', pumvisible() ? "\<C-N>" : "\t")
@@ -657,7 +666,7 @@ function! s:commands.setup(opts) abort
         call input(codemsg . "Press ENTER to open GitHub in your browser\n")
         let request = copilot#Request('workspace/executeCommand', data.command)
       endif
-      call s:Echo("Waiting for " . data.userCode . " at " . uri . " (could take up to 10 seconds)")
+      call s:Echo("Waiting for " . data.userCode . " at " . uri . " (could take up to 5 seconds)")
       call request.Wait()
     finally
       if exists('mouse')
@@ -780,7 +789,7 @@ function! copilot#Command(line1, line2, range, bang, mods, arg) abort
           if opts.status !=# 'OK' && opts.status !=# 'MaybeOK'
             let cmd = 'setup'
           else
-            let cmd = 'panel'
+            let cmd = 'status'
           endif
         catch
           call copilot#logger#Exception()
